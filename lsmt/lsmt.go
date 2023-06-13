@@ -17,7 +17,9 @@ type LSMTree struct {
 	treeInFlush    *avlTree.AVLTree
 	flushThreshold int
 	/* 控制对磁盘文件的并发读写 */
-	drwm      sync.RWMutex
+	drwm sync.RWMutex
+	/** 磁盘文件列表
+	 * 新文件插入到最前面，搜索时从最新文件开始搜索，合并时从最旧文件开始 */
 	diskFiles []DiskFile
 	/* 与子协程沟通的管道 */
 	stop chan struct{}
@@ -99,6 +101,7 @@ func (t *LSMTree) flush() {
 	d := []DiskFile{NewDiskFile(t.treeInFlush.Inorder())}
 	// Put the disk file in the list.
 	t.drwm.Lock()
+	// 最新的文件放在最前面
 	t.diskFiles = append(d, t.diskFiles...)
 	t.drwm.Unlock()
 	// Remove the tree in flush.
@@ -142,13 +145,13 @@ func (t *LSMTree) compactService() {
 }
 
 func compact(d1, d2 DiskFile) DiskFile {
+	log.Logger.Debug("start compacting two diskFiles.", "disk1'id", d1.id, "disk2'id", d2.id)
 	elems1 := d1.AllElements()
 	elems2 := d2.AllElements()
 
-	size := min(len(elems1), len(elems2))
 	var newElems []core.Element
 	var i1, i2 int
-	for i1 < size && i2 < size {
+	for i1 < len(elems1) && i2 < len(elems2) {
 		e1 := elems1[i1]
 		e2 := elems2[i2]
 		if e1.Key < e2.Key {
@@ -167,7 +170,9 @@ func compact(d1, d2 DiskFile) DiskFile {
 	newElems = append(newElems, elems1[i1:]...)
 	newElems = append(newElems, elems2[i2:]...)
 	newDiskFile := NewDiskFile(newElems)
-	log.Logger.Debug("successfully compact two diskFiles.", "disk1'id", d1.id, "disk2'id", d2.id, "newDisk'id", newDiskFile.id)
+	log.Logger.Debug("successfully compact two diskFiles.", "disk1'id", d1.id, "disk1'size", d1.size,
+		"disk2'id", d2.id, "disk2'size", d2.size,
+		"newDisk'id", newDiskFile.id, "newDisk'size", newDiskFile.size)
 	return newDiskFile
 }
 
@@ -175,11 +180,4 @@ func (t *LSMTree) Destroy() {
 	// 结束子协程
 	t.stop <- struct{}{}
 	<-t.stop
-}
-
-func min(i, j int) int {
-	if i < j {
-		return i
-	}
-	return j
 }

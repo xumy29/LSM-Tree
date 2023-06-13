@@ -2,22 +2,23 @@ package main
 
 import (
 	"LSM-Tree/avlTree"
+	"LSM-Tree/lsmt"
 	"fmt"
 	"time"
 )
 
 func main() {
-	// elems := lsmt.GenerateData(10000)
+	elems := lsmt.GenerateData(1000000)
 
-	// lsmTree := lsmt.NewLSMTree(100)
-	// for i := 0; i < len(elems); i++ {
-	// 	lsmTree.Put(elems[i].Key, elems[i].Value)
-	// }
-	// fmt.Printf("The lsmTree has %d nodes in total\n", lsmTree.TotalSize)
+	lsmTree := lsmt.NewLSMTree(500)
+	for i := 0; i < len(elems); i++ {
+		lsmTree.Put(elems[i].Key, elems[i].Value)
+	}
+	fmt.Printf("The lsmTree has %d nodes in total\n", lsmTree.TotalSize)
 
-	// for i := 0; i < len(elems); i++ {
-	// 	lsmTree.Get(elems[i].Key)
-	// }
+	for i := 0; i < len(elems); i++ {
+		lsmTree.Get(elems[i].Key)
+	}
 
 	// for k := 0; k < 10; k++ {
 	// 	fmt.Printf("GetData try %d\n", k+1)

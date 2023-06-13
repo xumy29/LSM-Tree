@@ -52,10 +52,11 @@ func NewDiskFile(elems []core.Element) DiskFile {
 	var indexElems []core.Element
 	var enc *gob.Encoder
 	for i, e := range elems {
+		// log.Logger.Debug(fmt.Sprintf("create diskfile %d, current elem.key: %v", d.id, e.Key))
 		if i%indexSparseRatio == 0 {
 			// Create sparse index.
 			idx := core.Element{Key: e.Key, Value: fmt.Sprintf("%d", d.buf.Len())}
-			log.Logger.Debug("diskFile created sparse index element", "diskID", d.id, "key", e.Key, "index", e.Value)
+			log.Logger.Debug("diskFile created sparse index element", "diskID", d.id, "key", idx.Key, "index", idx.Value)
 			indexElems = append(indexElems, idx)
 			enc = gob.NewEncoder(&d.buf)
 		}
@@ -88,6 +89,7 @@ func (d DiskFile) Search(key string) (core.Element, error) {
 		ei = d.buf.Len()
 	} else {
 		ei, _ = strconv.Atoi(endNode.Value)
+		// log.Logger.Debug(fmt.Sprintf("Searching key: %v in diskFile %d, endNode.key: %v, endNode.Val: %v", key, d.id, endNode.Key, endNode.Value))
 	}
 	log.Logger.Debug(fmt.Sprintf("Searching key: %v in diskFile %d, searching in index range [%d,%d)]", key, d.id, si, ei))
 	buf := bytes.NewBuffer(d.buf.Bytes()[si:ei])
