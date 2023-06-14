@@ -8,13 +8,9 @@ import (
 	"sync/atomic"
 
 	"LSM-Tree/avlTree"
+	"LSM-Tree/config"
 	"LSM-Tree/core"
 	log "LSM-Tree/log"
-)
-
-const (
-	maxFileLen       = 1024
-	indexSparseRatio = 3
 )
 
 var (
@@ -51,9 +47,10 @@ func NewDiskFile(elems []core.Element) *DiskFile {
 	log.Logger.Info("Create new diskFile", "diskID", d.id)
 	var indexElems []core.Element
 	var enc *gob.Encoder
+	indexDistance := config.DefaultConfig().IndexDistance
 	for i, e := range elems {
 		// log.Logger.Debug(fmt.Sprintf("writing to new diskfile %d, current elem.key: %v", d.id, e.Key))
-		if i%indexSparseRatio == 0 {
+		if i%indexDistance == 0 {
 			// Create sparse index.
 			idx := core.Element{Key: e.Key, Value: fmt.Sprintf("%d", d.buf.Len())}
 			log.Trace("diskFile created sparse index element", "diskID", d.id, "key", idx.Key, "index", idx.Value)

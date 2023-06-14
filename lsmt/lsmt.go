@@ -28,6 +28,7 @@ type LSMTree struct {
 	stop chan struct{}
 	/* 包括内存中的元素、正在flush到磁盘和已经在磁盘中的元素个数 */
 	TotalSize int
+	config    *config.Config
 }
 
 // debug
@@ -59,9 +60,8 @@ func NewLSMTree(flushThreshold int) *LSMTree {
 		tree:           &avlTree.AVLTree{},
 		treesInFlush:   list.New(),
 		diskFiles:      list.New(),
+		config:         config.DefaultConfig(),
 	}
-	cfg := config.DefaultConfig()
-	go t.compactService(cfg.CompactInterval)
 	return t
 }
 
@@ -96,7 +96,7 @@ func (t *LSMTree) Get(key string) (string, error) {
 		if node.Value == deleteVal {
 			// 该key已被删除
 			t.rwm.RUnlock()
-			return "", fmt.Errorf("key %s not found", key)
+			return "", fmt.Errorf("key %s was deleted", key)
 		}
 		t.rwm.RUnlock()
 		return node.Value, nil
@@ -107,7 +107,7 @@ func (t *LSMTree) Get(key string) (string, error) {
 			if node.Value == deleteVal {
 				// 该key已被删除
 				t.rwm.RUnlock()
-				return "", fmt.Errorf("key %s not found", key)
+				return "", fmt.Errorf("key %s was deleted", key)
 			}
 			t.rwm.RUnlock()
 			return node.Value, nil
@@ -124,7 +124,7 @@ func (t *LSMTree) Get(key string) (string, error) {
 		if err == nil {
 			// found in disk
 			if elem.Value == deleteVal {
-				return "", fmt.Errorf("key %s not found", key)
+				return "", fmt.Errorf("key %s was deleted", key)
 			}
 			return elem.Value, nil
 		}

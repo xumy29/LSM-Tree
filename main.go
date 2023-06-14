@@ -29,7 +29,7 @@ func main() {
 	}
 
 	for i := 0; i < 100000; i++ {
-		key := fmt.Sprintf("key%d", rand.Intn(1000000))
+		key := fmt.Sprintf("key%d", rand.Intn(100000))
 		lsmTree.Delete(key)
 	}
 
@@ -43,6 +43,14 @@ func main() {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+
+	val, err := lsmTree.Get("key1000001")
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	} else {
+		fmt.Printf("search key %v, got value %v\n", "key1000001", val)
+	}
+
 	// for i := 0; i < len(elems); i++ {
 	// 	lsmTree.Get(elems[i].Key)
 	// }
