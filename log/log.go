@@ -1,6 +1,7 @@
 package lsmt
 
 import (
+	"LSM-Tree/config"
 	"os"
 	"path/filepath"
 
@@ -37,9 +38,11 @@ func init() {
 
 /* 一些比debug信息更细的内容用此函数打印，只在需要跟踪某个key时打印，其余时候不打印 */
 func Trace(msg string, ctx ...interface{}) {
-	msg = "===Trace===" + msg
 	// 下面语句默认不调用，只在需要较详细的debug信息时调用
-	// log.Debug(msg, ctx)
+	if config.DefaultConfig().IsTracing {
+		msg = "==Trace==" + msg
+		log.Debug(msg, ctx)
+	}
 }
 
 // func Debug(msg string, ctx ...interface{}) {

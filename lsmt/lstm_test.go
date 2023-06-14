@@ -1,12 +1,15 @@
 package lsmt
 
 import (
+	"LSM-Tree/config"
 	"LSM-Tree/core"
 	"fmt"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 ////////////////////////////////////////////////////
@@ -64,8 +67,8 @@ func TestFlushedToDisk(t *testing.T) {
 	if tree.tree.Size() != 0 {
 		t.Errorf("got tree size %d; want 0", tree.tree.Size())
 	}
-	if len(tree.diskFiles) != 1 {
-		t.Errorf("got disk file size %d; want 1", len(tree.diskFiles))
+	if tree.diskFiles.Len() != 1 {
+		t.Errorf("got disk file size %d; want 1", tree.diskFiles.Len())
 	}
 	if _, err := tree.Get("1"); err != nil {
 		t.Error("key 1 not found")
@@ -80,11 +83,11 @@ func TestFlushedToDisk(t *testing.T) {
 	tree.Put("4", "Four")
 	// 等待写入到磁盘和compaction
 	time.Sleep(3 * time.Second)
-	if len(tree.diskFiles) != 1 {
-		t.Errorf("got disk file size %d; want 1", len(tree.diskFiles))
+	if tree.diskFiles.Len() != 1 {
+		t.Errorf("got disk file size %d; want 1", tree.diskFiles.Len())
 	}
-	if len(tree.diskFiles) == 1 {
-		got := tree.diskFiles[0].AllElements()
+	if tree.diskFiles.Len() == 1 {
+		got := tree.diskFiles.Front().Value.(*DiskFile).AllElements()
 		want := []core.Element{{Key: "1", Value: "One"}, {Key: "2", Value: "Two"}, {Key: "3", Value: "Three"}, {Key: "4", Value: "Four"}}
 		if !reflect.DeepEqual(want, got) {
 			t.Errorf("got result %v; want %v", got, want)
@@ -100,16 +103,51 @@ func TestCompactionCollapse(t *testing.T) {
 	tree.Put("1", "ONE")
 	// 等待写入到磁盘和compaction.
 	time.Sleep(3 * time.Second)
-	if len(tree.diskFiles) != 1 {
-		t.Errorf("got disk file size %d; want 1", len(tree.diskFiles))
+	if tree.diskFiles.Len() != 1 {
+		t.Errorf("got disk file size %d; want 1", tree.diskFiles.Len())
 	}
-	if len(tree.diskFiles) == 1 {
-		got := tree.diskFiles[0].AllElements()
+	if tree.diskFiles.Len() == 1 {
+		got := tree.diskFiles.Front().Value.(*DiskFile).AllElements()
 		want := []core.Element{{Key: "1", Value: "ONE"}}
 		if !reflect.DeepEqual(want, got) {
 			t.Errorf("got result %v; want %v", got, want)
 		}
 	}
+}
+
+func TestDelete(t *testing.T) {
+	tree := NewLSMTree(2)
+	tree.Put("1", "One")
+	tree.Put("2", "Two")
+
+	// 写入到磁盘且能正确读取
+	time.Sleep(1 * time.Second)
+	assert.Equal(t, 1, tree.diskFiles.Len())
+	val, err := tree.Get("1")
+	assert.Equal(t, true, err == nil)
+	assert.Equal(t, "One", val)
+
+	// 删除，未写入到磁盘，从内存中读取不到
+	tree.Delete("1")
+	assert.Equal(t, 1, tree.tree.Size())
+	_, err = tree.Get("1")
+	assert.Equal(t, true, err != nil)
+
+	// 随便插入一个新键值对
+	tree.Put("3", "Three")
+
+	// 删除操作被写入到磁盘，且进行了compact，仍然读取不到被删除的键
+	time.Sleep(1 * time.Second)
+	_, err = tree.Get("1")
+	assert.Equal(t, true, err != nil)
+	// 但可以正常读取没被删除的键
+	val, err = tree.Get("2")
+	assert.Equal(t, true, err == nil)
+	assert.Equal(t, "Two", val)
+
+	// 尝试插入特殊删除标记值，会失败
+	tree.Put("4", config.DefaultConfig().DeleteValue)
+
 }
 
 ////////////////////////////////////////////////////

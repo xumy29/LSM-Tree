@@ -4,6 +4,7 @@ import (
 	"LSM-Tree/avlTree"
 	"LSM-Tree/lsmt"
 	"fmt"
+	"math/rand"
 	"time"
 )
 
@@ -16,9 +17,36 @@ func main() {
 	}
 	fmt.Printf("The lsmTree has %d nodes in total\n", lsmTree.TotalSize)
 
-	for i := 0; i < len(elems); i++ {
-		lsmTree.Get(elems[i].Key)
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("key%d", rand.Intn(1000))
+		val, err := lsmTree.Get(key)
+		if err != nil {
+			panic(err)
+		} else {
+			fmt.Printf("search key %v, got value %v\n", key, val)
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
+
+	for i := 0; i < 100000; i++ {
+		key := fmt.Sprintf("key%d", rand.Intn(1000000))
+		lsmTree.Delete(key)
+	}
+
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("key%d", rand.Intn(1000))
+		val, err := lsmTree.Get(key)
+		if err != nil {
+			fmt.Printf("%v\n", err)
+		} else {
+			fmt.Printf("search key %v, got value %v\n", key, val)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	// for i := 0; i < len(elems); i++ {
+	// 	lsmTree.Get(elems[i].Key)
+	// }
+	// time.Sleep(5 * time.Second)
 
 	// for k := 0; k < 10; k++ {
 	// 	fmt.Printf("GetData try %d\n", k+1)

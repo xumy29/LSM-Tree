@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"LSM-Tree/avlTree"
+	"LSM-Tree/config"
 	"LSM-Tree/core"
 	log "LSM-Tree/log"
 )
@@ -21,8 +22,8 @@ type LSMTree struct {
 	/* 控制对磁盘文件的并发读写 */
 	drwm sync.RWMutex
 	/** 磁盘文件列表
-	 * 新文件插入到最前面，搜索时从最新文件开始搜索，合并时从最旧文件开始 */
-	diskFiles []DiskFile
+	 * flush时新文件插入到最前面 */
+	diskFiles *list.List
 	/* 与子协程沟通的管道 */
 	stop chan struct{}
 	/* 包括内存中的元素、正在flush到磁盘和已经在磁盘中的元素个数 */
@@ -57,20 +58,78 @@ func NewLSMTree(flushThreshold int) *LSMTree {
 		stop:           make(chan struct{}, 1),
 		tree:           &avlTree.AVLTree{},
 		treesInFlush:   list.New(),
+		diskFiles:      list.New(),
 	}
-	go t.compactService()
+	cfg := config.DefaultConfig()
+	go t.compactService(cfg.CompactInterval)
 	return t
 }
 
 func (t *LSMTree) Put(key, value string) {
+	if value == config.DefaultConfig().DeleteValue {
+		log.Logger.Error(fmt.Sprintf("Error occurs during Put(key:'%v',value:'%v'). This value is reserved as special delete value, try another value or use escape characters", key, value))
+		return
+	}
 	t.rwm.Lock()
 	defer t.rwm.Unlock()
+	log.Trace(fmt.Sprintf("Put(key: %v, value: %v)", key, value))
 	t.TotalSize += t.tree.Add(key, value)
+	// log.Logger.Debug("LSMTree Put or Update", "key", key, "value", value)
 	if t.tree.Size() >= t.flushThreshold {
 		// Trigger flush.
 		log.Logger.Debug("LSMTree triggers flush", "Treesize", t.tree.Size())
 		t.toFlush()
 	}
+}
+
+func (t *LSMTree) Delete(key string) {
+	t.rwm.Lock()
+	defer t.rwm.Unlock()
+	log.Trace(fmt.Sprintf("Delete(key: %v)", key))
+	t.TotalSize += t.tree.Add(key, config.DefaultConfig().DeleteValue)
+}
+
+func (t *LSMTree) Get(key string) (string, error) {
+	deleteVal := config.DefaultConfig().DeleteValue
+	t.rwm.RLock()
+	if node := t.tree.Search(key); node != nil {
+		if node.Value == deleteVal {
+			// 该key已被删除
+			t.rwm.RUnlock()
+			return "", fmt.Errorf("key %s not found", key)
+		}
+		t.rwm.RUnlock()
+		return node.Value, nil
+	}
+	for e := t.treesInFlush.Front(); e != nil; e = e.Next() {
+		treeInFlush := e.Value.(*avlTree.AVLTree)
+		if node := treeInFlush.Search(key); node != nil {
+			if node.Value == deleteVal {
+				// 该key已被删除
+				t.rwm.RUnlock()
+				return "", fmt.Errorf("key %s not found", key)
+			}
+			t.rwm.RUnlock()
+			return node.Value, nil
+		}
+	}
+	t.rwm.RUnlock()
+	// The key is not in memory. Search in disk files.
+	t.drwm.RLock()
+	defer t.drwm.RUnlock()
+	// 从最前面的最新磁盘文件开始往后搜，搜到的第一个即返回
+	for e := t.diskFiles.Front(); e != nil; e = e.Next() {
+		d := e.Value.(*DiskFile)
+		elem, err := d.Search(key)
+		if err == nil {
+			// found in disk
+			if elem.Value == deleteVal {
+				return "", fmt.Errorf("key %s not found", key)
+			}
+			return elem.Value, nil
+		}
+	}
+	return "", fmt.Errorf("key %s not found", key)
 }
 
 func (t *LSMTree) toFlush() {
@@ -81,43 +140,17 @@ func (t *LSMTree) toFlush() {
 	go t.flush(e.Value.(*avlTree.AVLTree))
 }
 
-func (t *LSMTree) Get(key string) (string, error) {
-	t.rwm.RLock()
-	if node := t.tree.Search(key); node != nil {
-		t.rwm.RUnlock()
-		return node.Value, nil
-	}
-	for e := t.treesInFlush.Front(); e != nil; e = e.Next() {
-		treeInFlush := e.Value.(*avlTree.AVLTree)
-		if node := treeInFlush.Search(key); node != nil {
-			t.rwm.RUnlock()
-			return node.Value, nil
-		}
-	}
-	t.rwm.RUnlock()
-	// The key is not in memory. Search in disk files.
-	t.drwm.RLock()
-	defer t.drwm.RUnlock()
-	for _, d := range t.diskFiles {
-		e, err := d.Search(key)
-		if err == nil {
-			// Found in disk
-			return e.Value, nil
-		}
-	}
-	return "", fmt.Errorf("key %s not found", key)
-}
-
 /** 创建一个新的磁盘文件，将一个缓冲区的内容写入到磁盘文件
  * 写入完成后，将该缓冲区指针从链表中移除
  */
 func (t *LSMTree) flush(treeInFlush *avlTree.AVLTree) {
 	// Create a new disk file.
-	d := []DiskFile{NewDiskFile(treeInFlush.Inorder())}
+	d := NewDiskFile(treeInFlush.Inorder())
 	// Put the disk file in the list.
 	t.drwm.Lock()
 	// 最新的文件放在最前面
-	t.diskFiles = append(d, t.diskFiles...)
+	t.diskFiles.PushFront(d)
+	log.Logger.Debug(fmt.Sprintf("now we have %d diskFiles.", t.diskFiles.Len()))
 	t.drwm.Unlock()
 	// Remove the tree in flush.
 	t.rwm.Lock()
@@ -125,7 +158,7 @@ func (t *LSMTree) flush(treeInFlush *avlTree.AVLTree) {
 	t.rwm.Unlock()
 }
 
-func (t *LSMTree) compactService() {
+func (t *LSMTree) compactService(interval int) {
 	for {
 		select {
 		case <-t.stop:
@@ -133,33 +166,36 @@ func (t *LSMTree) compactService() {
 			fmt.Print("compact 线程关闭\n")
 			return
 		default:
-			time.Sleep(time.Second)
-			var d1, d2 DiskFile
-			t.drwm.RLock()
-			fileCnt := len(t.diskFiles)
+			time.Sleep(time.Duration(interval) * time.Millisecond)
+			var d1, d2 *DiskFile
+			t.drwm.Lock()
+			fileCnt := t.diskFiles.Len()
 			if fileCnt >= 2 {
-				d1 = t.diskFiles[fileCnt-1]
-				d2 = t.diskFiles[fileCnt-2]
+				d1 = t.diskFiles.Remove(t.diskFiles.Back()).(*DiskFile)
+				d2 = t.diskFiles.Back().Value.(*DiskFile)
+				t.diskFiles.PushBack(d1)
 			}
-			t.drwm.RUnlock()
-			if d1.Empty() || d2.Empty() {
+			t.drwm.Unlock()
+			if d1 == nil || d2 == nil {
 				continue
 			}
 			// Create a new compacted disk file.
 			d := compact(d1, d2)
 			// Replace the two old files.
 			t.drwm.Lock()
-			// 原先这里是 t.diskFiles = t.diskFiles[0 : len(diskFiles)-2],  t.diskFiles = append(t.diskFiles, d) 。似乎不太合理，因为compact过程中可能有新文件被写入diskFiles
-			tmp := t.diskFiles[fileCnt:]
-			t.diskFiles = t.diskFiles[0 : fileCnt-2]
-			t.diskFiles = append(t.diskFiles, d)
-			t.diskFiles = append(t.diskFiles, tmp...)
+			// 先删除最后两个文件，即被合并的文件
+			t.diskFiles.Remove(t.diskFiles.Back())
+			t.diskFiles.Remove(t.diskFiles.Back())
+			// compact后的文件放在最后面，代表数据最旧
+			t.diskFiles.PushBack(d)
+			log.Logger.Debug(fmt.Sprintf("now we have %d diskFiles.", t.diskFiles.Len()))
+
 			t.drwm.Unlock()
 		}
 	}
 }
 
-func compact(d1, d2 DiskFile) DiskFile {
+func compact(d1, d2 *DiskFile) *DiskFile {
 	log.Logger.Debug("start compacting two diskFiles.", "disk1'id", d1.id, "disk2'id", d2.id)
 	elems1 := d1.AllElements()
 	elems2 := d2.AllElements()

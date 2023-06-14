@@ -42,8 +42,8 @@ func (d DiskFile) Empty() bool {
 树的key即elem的key，value是elem的value在磁盘文件中的位置（第几个字节）
 * 为了减少索引树的体积，每隔几个elem存储一个索引
 */
-func NewDiskFile(elems []core.Element) DiskFile {
-	d := DiskFile{
+func NewDiskFile(elems []core.Element) *DiskFile {
+	d := &DiskFile{
 		size:  len(elems),
 		id:    atomic.AddInt32(&globalID, 1),
 		index: &avlTree.AVLTree{},
@@ -52,11 +52,11 @@ func NewDiskFile(elems []core.Element) DiskFile {
 	var indexElems []core.Element
 	var enc *gob.Encoder
 	for i, e := range elems {
-		// log.Logger.Debug(fmt.Sprintf("create diskfile %d, current elem.key: %v", d.id, e.Key))
+		// log.Logger.Debug(fmt.Sprintf("writing to new diskfile %d, current elem.key: %v", d.id, e.Key))
 		if i%indexSparseRatio == 0 {
 			// Create sparse index.
 			idx := core.Element{Key: e.Key, Value: fmt.Sprintf("%d", d.buf.Len())}
-			log.Logger.Debug("diskFile created sparse index element", "diskID", d.id, "key", idx.Key, "index", idx.Value)
+			log.Trace("diskFile created sparse index element", "diskID", d.id, "key", idx.Key, "index", idx.Value)
 			indexElems = append(indexElems, idx)
 			enc = gob.NewEncoder(&d.buf)
 		}
@@ -79,7 +79,7 @@ func (d DiskFile) Search(key string) (core.Element, error) {
 	startNode := d.index.LowerBound(key)
 	if startNode == nil {
 		// Key smaller than all.
-		log.Logger.Debug(fmt.Sprintf("Searching key: %v in diskFile %d, not found", key, d.id))
+		log.Trace(fmt.Sprintf("Searching key: %v in diskFile %d, not found", key, d.id))
 		return core.Element{}, canErr
 	}
 	si, _ = strconv.Atoi(startNode.Value)
@@ -91,7 +91,7 @@ func (d DiskFile) Search(key string) (core.Element, error) {
 		ei, _ = strconv.Atoi(endNode.Value)
 		// log.Logger.Debug(fmt.Sprintf("Searching key: %v in diskFile %d, endNode.key: %v, endNode.Val: %v", key, d.id, endNode.Key, endNode.Value))
 	}
-	log.Logger.Debug(fmt.Sprintf("Searching key: %v in diskFile %d, searching in index range [%d,%d)]", key, d.id, si, ei))
+	// log.Logger.Debug(fmt.Sprintf("Searching key: %v in diskFile %d, searching in index range [%d,%d)]", key, d.id, si, ei))
 	buf := bytes.NewBuffer(d.buf.Bytes()[si:ei])
 	dec := gob.NewDecoder(buf)
 	for {
@@ -103,6 +103,7 @@ func (d DiskFile) Search(key string) (core.Element, error) {
 			break
 		}
 		if e.Key == key {
+			log.Trace(fmt.Sprintf("Searching key: %v in diskFile %d, searching in index range [%d,%d)], and find it!", key, d.id, si, ei))
 			return e, nil
 		}
 	}
