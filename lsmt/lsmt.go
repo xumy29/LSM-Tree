@@ -1,6 +1,7 @@
 package lsmt
 
 import (
+	"container/list"
 	"fmt"
 	"sync"
 	"time"
@@ -12,9 +13,10 @@ import (
 
 type LSMTree struct {
 	/* 控制内存中两棵树的并发读写 */
-	rwm            sync.RWMutex
-	tree           *avlTree.AVLTree
-	treeInFlush    *avlTree.AVLTree
+	rwm  sync.RWMutex
+	tree *avlTree.AVLTree
+	/* 从tree写入到硬盘的中间缓冲区列表，每个元素的类型是 *avlTree.AVLTree，指向一个缓冲区 */
+	treesInFlush   *list.List
 	flushThreshold int
 	/* 控制对磁盘文件的并发读写 */
 	drwm sync.RWMutex
@@ -28,32 +30,33 @@ type LSMTree struct {
 }
 
 // debug
-func (t *LSMTree) Print() {
-	fmt.Printf("LSMTree: %p\n", t)
-	cnt := 0
-	fmt.Printf("tree root: %p size: %d\n", t.tree, t.tree.Size())
-	cnt += t.tree.Size()
-	fmt.Printf("treeInFlush root: %p ", t.treeInFlush)
-	if t.treeInFlush == nil {
-		fmt.Printf("\n")
-	} else {
-		fmt.Printf("size: %d\n", t.treeInFlush.Size())
-		cnt += t.treeInFlush.Size()
-	}
-	fmt.Printf("diskFiles: %p\n", t.diskFiles)
-	for i := 0; i < len(t.diskFiles); i++ {
-		fmt.Printf("diskFile %d, indexTree root: %p, size: %d\n", i, t.diskFiles[i].index, t.diskFiles[i].size)
-		cnt += t.diskFiles[i].size
-	}
-	fmt.Printf("total size: %d\n", cnt)
-}
+// todo: treesInFlush 由*avlTree.AVLTree变成了list，相关操作需调整
+// func (t *LSMTree) Print() {
+// 	fmt.Printf("LSMTree: %p\n", t)
+// 	cnt := 0
+// 	fmt.Printf("tree root: %p size: %d\n", t.tree, t.tree.Size())
+// 	cnt += t.tree.Size()
+// 	fmt.Printf("treeInFlush root: %p ", t.treesInFlush)
+// 	if t.treesInFlush == nil {
+// 		fmt.Printf("\n")
+// 	} else {
+// 		fmt.Printf("size: %d\n", t.treesInFlush.Size())
+// 		cnt += t.treesInFlush.Size()
+// 	}
+// 	fmt.Printf("diskFiles: %p\n", t.diskFiles)
+// 	for i := 0; i < len(t.diskFiles); i++ {
+// 		fmt.Printf("diskFile %d, indexTree root: %p, size: %d\n", i, t.diskFiles[i].index, t.diskFiles[i].size)
+// 		cnt += t.diskFiles[i].size
+// 	}
+// 	fmt.Printf("total size: %d\n", cnt)
+// }
 
 func NewLSMTree(flushThreshold int) *LSMTree {
 	t := &LSMTree{
 		flushThreshold: flushThreshold,
 		stop:           make(chan struct{}, 1),
 		tree:           &avlTree.AVLTree{},
-		treeInFlush:    &avlTree.AVLTree{},
+		treesInFlush:   list.New(),
 	}
 	go t.compactService()
 	return t
@@ -63,13 +66,19 @@ func (t *LSMTree) Put(key, value string) {
 	t.rwm.Lock()
 	defer t.rwm.Unlock()
 	t.TotalSize += t.tree.Add(key, value)
-	if t.tree.Size() >= t.flushThreshold && t.treeInFlush.Size() == 0 {
+	if t.tree.Size() >= t.flushThreshold {
 		// Trigger flush.
 		log.Logger.Debug("LSMTree triggers flush", "Treesize", t.tree.Size())
-		t.treeInFlush = t.tree
-		t.tree = &avlTree.AVLTree{}
-		go t.flush()
+		t.toFlush()
 	}
+}
+
+func (t *LSMTree) toFlush() {
+	// 此函数包含对树的操作，需加锁或在调用本函数的其他函数上下文中加锁
+	e := t.treesInFlush.PushFront(t.tree) // 最新的树加在链表最前面
+	log.Logger.Debug(fmt.Sprintf("now we have %d treeInFlush.", t.treesInFlush.Len()))
+	t.tree = &avlTree.AVLTree{}
+	go t.flush(e.Value.(*avlTree.AVLTree))
 }
 
 func (t *LSMTree) Get(key string) (string, error) {
@@ -78,9 +87,12 @@ func (t *LSMTree) Get(key string) (string, error) {
 		t.rwm.RUnlock()
 		return node.Value, nil
 	}
-	if node := t.treeInFlush.Search(key); node != nil {
-		t.rwm.RUnlock()
-		return node.Value, nil
+	for e := t.treesInFlush.Front(); e != nil; e = e.Next() {
+		treeInFlush := e.Value.(*avlTree.AVLTree)
+		if node := treeInFlush.Search(key); node != nil {
+			t.rwm.RUnlock()
+			return node.Value, nil
+		}
 	}
 	t.rwm.RUnlock()
 	// The key is not in memory. Search in disk files.
@@ -96,9 +108,12 @@ func (t *LSMTree) Get(key string) (string, error) {
 	return "", fmt.Errorf("key %s not found", key)
 }
 
-func (t *LSMTree) flush() {
+/** 创建一个新的磁盘文件，将一个缓冲区的内容写入到磁盘文件
+ * 写入完成后，将该缓冲区指针从链表中移除
+ */
+func (t *LSMTree) flush(treeInFlush *avlTree.AVLTree) {
 	// Create a new disk file.
-	d := []DiskFile{NewDiskFile(t.treeInFlush.Inorder())}
+	d := []DiskFile{NewDiskFile(treeInFlush.Inorder())}
 	// Put the disk file in the list.
 	t.drwm.Lock()
 	// 最新的文件放在最前面
@@ -106,7 +121,7 @@ func (t *LSMTree) flush() {
 	t.drwm.Unlock()
 	// Remove the tree in flush.
 	t.rwm.Lock()
-	t.treeInFlush = &avlTree.AVLTree{}
+	ListRemove(t.treesInFlush, treeInFlush)
 	t.rwm.Unlock()
 }
 

@@ -150,25 +150,25 @@ func benchmarkPut(b *testing.B) {
 	}
 }
 
-func BenchmarkGet(b *testing.B) {
-	elemCnt := 10000
-	len2Flush := elemCnt / 10
+// func BenchmarkGet(b *testing.B) {
+// 	elemCnt := 10000
+// 	len2Flush := elemCnt / 10
 
-	elems := GenerateData(elemCnt)
+// 	elems := GenerateData(elemCnt)
 
-	lsmTree := NewLSMTree(len2Flush)
+// 	lsmTree := NewLSMTree(len2Flush)
 
-	PutData(elems, lsmTree)
+// 	PutData(elems, lsmTree)
 
-	for k := 0; k < b.N; k++ {
-		// startTime := time.Now()
-		fmt.Printf("iter %d\n", k+1)
-		lsmTree.Print()
-		GetData(elems, lsmTree)
+// 	for k := 0; k < b.N; k++ {
+// 		// startTime := time.Now()
+// 		fmt.Printf("iter %d\n", k+1)
+// 		lsmTree.Print()
+// 		GetData(elems, lsmTree)
 
-		// endTime := time.Now()
-		// elapsed := endTime.Sub(startTime).Milliseconds()
+// 		// endTime := time.Now()
+// 		// elapsed := endTime.Sub(startTime).Milliseconds()
 
-		// fmt.Printf("第 %d 次迭代的执行时间：%d 毫秒\n", k+1, elapsed)
-	}
-}
+// 		// fmt.Printf("第 %d 次迭代的执行时间：%d 毫秒\n", k+1, elapsed)
+// 	}
+// }
