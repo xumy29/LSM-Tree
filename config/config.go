@@ -15,7 +15,7 @@ type Config struct {
 	ElemCnt2Flush int
 	// level-0文件数量上限，达到上限时向level-1合并
 	MaxLevel0FileCnt int
-	// Level-1+ 每个文件的最大体积，单位 MB
+	// Level-1+ 每个文件的最大体积，单位是键值对个数
 	LevelLFileSize int
 	// level-1+ 总体积上限，达到上限时向level-L+1合并
 	LevelLSize2Compact func(int) int
@@ -33,7 +33,7 @@ func DefaultConfig() *Config {
 			IndexDistance:    10,
 			ElemCnt2Flush:    10000,
 			MaxLevel0FileCnt: 4,
-			LevelLFileSize:   1,
+			LevelLFileSize:   40000,
 			LevelLSize2Compact: func(lvl int) int {
 				return int(math.Pow10(lvl))
 			},

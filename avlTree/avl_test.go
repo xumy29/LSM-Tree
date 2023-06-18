@@ -74,18 +74,18 @@ func TestInorder(t *testing.T) {
 	key := ""
 	val := "b"
 
-	expected := make([]core.Element, 0)
+	expected := make([]*core.Element, 0)
 	for i := 0; i < 5; i++ {
 		key += "x"
-		expected = append(expected, core.Element{Key: key, Value: val})
+		expected = append(expected, &core.Element{Key: key, Value: val})
 		tree.Add(key, val)
 	}
 
 	got := tree.Inorder()
 	assert.Equal(t, expected, got)
 
-	e := core.Element{Key: "xxa", Value: val}
-	expected = append(expected[:2], append([]core.Element{e}, expected[2:]...)...)
+	e := &core.Element{Key: "xxa", Value: val}
+	expected = append(expected[:2], append([]*core.Element{e}, expected[2:]...)...)
 	tree.Add("xxa", val)
 	got = tree.Inorder()
 	assert.Equal(t, expected, got)

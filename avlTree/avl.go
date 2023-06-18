@@ -70,11 +70,11 @@ func (t *AVLTree) DisplayInOrder() {
 }
 
 /* 按中序遍历整棵树并返回节点数组 */
-func (t *AVLTree) Inorder() (nodes []core.Element) {
+func (t *AVLTree) Inorder() (nodes []*core.Element) {
 	if t.root == nil {
-		return make([]core.Element, 0)
+		return make([]*core.Element, 0)
 	}
-	nodes = make([]core.Element, 0, t.size)
+	nodes = make([]*core.Element, 0, t.size)
 	t.root.inorder(&nodes)
 
 	return
@@ -202,14 +202,14 @@ func (n *AVLNode) upperBound(key string) *AVLNode {
 	}
 }
 
-func (n *AVLNode) inorder(nodes *[]core.Element) {
+func (n *AVLNode) inorder(nodes *[]*core.Element) {
 	if n == nil {
 		return
 	}
 	if n.left != nil {
 		n.left.inorder(nodes)
 	}
-	*nodes = append(*nodes, core.Element{
+	*nodes = append(*nodes, &core.Element{
 		Key:   n.Key,
 		Value: n.Value,
 	})

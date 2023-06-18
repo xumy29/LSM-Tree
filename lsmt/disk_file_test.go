@@ -7,7 +7,7 @@ import (
 )
 
 func TestDiskFileConstruction(t *testing.T) {
-	elems := []core.Element{
+	elems := []*core.Element{
 		{Key: "1", Value: "One"},
 		{Key: "2", Value: "Two"},
 		{Key: "3", Value: "Three"},
@@ -16,8 +16,11 @@ func TestDiskFileConstruction(t *testing.T) {
 		{Key: "6", Value: "Six"},
 		{Key: "7", Value: "Seven"},
 	}
-	d := NewDiskFile(elems)
+	d := NewDiskFile(elems, 0)
 	got := d.AllElements()
+	// for _, e := range got {
+	// 	fmt.Printf("%v", e)
+	// }
 	if !reflect.DeepEqual(elems, got) {
 		t.Errorf("all elements got %v; want %v", got, elems)
 	}
@@ -30,7 +33,7 @@ func TestDiskFileConstruction(t *testing.T) {
 }
 
 func TestDiskFileSearch(t *testing.T) {
-	elems := []core.Element{
+	elems := []*core.Element{
 		{Key: "1", Value: "One"},
 		{Key: "2", Value: "Two"},
 		{Key: "3", Value: "Three"},
@@ -39,7 +42,7 @@ func TestDiskFileSearch(t *testing.T) {
 		{Key: "6", Value: "Six"},
 		{Key: "7", Value: "Seven"},
 	}
-	d := NewDiskFile(elems)
+	d := NewDiskFile(elems, 0)
 	for _, e := range elems {
 		if got, err := d.Search(e.Key); err != nil || got.Key != e.Key {
 			t.Errorf("search got key %s, %v; want %s, nil", got.Key, err, e.Key)

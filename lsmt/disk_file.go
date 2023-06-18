@@ -24,8 +24,11 @@ type DiskFile struct {
 	index *avlTree.AVLTree
 	id    int32
 	// data  io.ReadSeeker
-	size int
-	buf  bytes.Buffer
+	size      int
+	buf       bytes.Buffer
+	start_key string
+	end_key   string
+	level     int
 }
 
 func (d DiskFile) Empty() bool {
@@ -38,11 +41,12 @@ func (d DiskFile) Empty() bool {
 树的key即elem的key，value是elem的value在磁盘文件中的位置（第几个字节）
 * 为了减少索引树的体积，每隔几个elem存储一个索引
 */
-func NewDiskFile(elems []core.Element) *DiskFile {
+func NewDiskFile(elems []*core.Element, level int) *DiskFile {
 	d := &DiskFile{
 		size:  len(elems),
 		id:    atomic.AddInt32(&globalID, 1),
 		index: &avlTree.AVLTree{},
+		level: level,
 	}
 	log.Logger.Info("Create new diskFile", "diskID", d.id)
 	var indexElems []core.Element
@@ -57,9 +61,12 @@ func NewDiskFile(elems []core.Element) *DiskFile {
 			indexElems = append(indexElems, idx)
 			enc = gob.NewEncoder(&d.buf)
 		}
-		enc.Encode(e)
+		enc.Encode(*e)
 	}
 	d.index.BatchAdd(indexElems)
+	// 默认至少有一个元素
+	d.start_key = elems[0].Key
+	d.end_key = elems[len(elems)-1].Key
 	return d
 }
 
@@ -110,10 +117,11 @@ func (d DiskFile) Search(key string) (core.Element, error) {
 /** 返回一个磁盘文件中的所有elem
  * 注意由于删除操作，磁盘文件的有效内容可能不连续，因此需要根据索引树来访问磁盘文件
  */
-func (d DiskFile) AllElements() []core.Element {
+func (d DiskFile) AllElements() []*core.Element {
 	indexElems := d.index.Inorder()
-	var elems []core.Element
+	var elems []*core.Element = make([]*core.Element, d.size+1)
 	var dec *gob.Decoder
+	cnt := 0
 	for i, idx := range indexElems {
 		start, _ := strconv.Atoi(idx.Value)
 		end := d.buf.Len()
@@ -121,10 +129,15 @@ func (d DiskFile) AllElements() []core.Element {
 			end, _ = strconv.Atoi(indexElems[i+1].Value)
 		}
 		dec = gob.NewDecoder(bytes.NewBuffer(d.buf.Bytes()[start:end]))
-		var e core.Element
-		for dec.Decode(&e) == nil {
-			elems = append(elems, e)
+		// var e core.Element
+		for {
+			elems[cnt] = &core.Element{}
+			if dec.Decode(elems[cnt]) != nil {
+				break
+			}
+			cnt += 1
 		}
+
 	}
-	return elems
+	return elems[:len(elems)-1]
 }
