@@ -64,6 +64,9 @@ func NewLSMTree(flushThreshold int) *LSMTree {
 		config:         config.DefaultConfig(),
 		isCompacting:   false,
 	}
+	if t.flushThreshold == 0 {
+		t.flushThreshold = config.DefaultConfig().ElemCnt2Flush
+	}
 	// 先初始化最低几层，已足够用
 	for i := 0; i < 5; i++ {
 		t.diskFiles[i] = list.New()
@@ -83,7 +86,7 @@ func (t *LSMTree) Put(key, value string) {
 	// log.Logger.Debug("LSMTree Put or Update", "key", key, "value", value)
 	if t.tree.Size() >= t.flushThreshold {
 		// Trigger flush.
-		log.Logger.Debug("LSMTree triggers flush", "Treesize", t.tree.Size())
+		// log.Logger.Debug("LSMTree triggers flush", "Treesize", t.tree.Size())
 		t.toFlush()
 	}
 }
@@ -141,7 +144,7 @@ func (t *LSMTree) Get(key string) (string, error) {
 func (t *LSMTree) toFlush() {
 	// 此函数包含对树的操作，需加锁或在调用本函数的其他函数上下文中加锁
 	e := t.treesInFlush.PushFront(t.tree) // 最新的树加在链表最前面
-	log.Logger.Debug(fmt.Sprintf("now we have %d treeInFlush.", t.treesInFlush.Len()))
+	// log.Logger.Debug(fmt.Sprintf("now we have %d treeInFlush.", t.treesInFlush.Len()))
 	t.tree = &avlTree.AVLTree{}
 	go t.flush(e.Value.(*avlTree.AVLTree))
 }
@@ -156,7 +159,7 @@ func (t *LSMTree) flush(treeInFlush *avlTree.AVLTree) {
 	t.drwm.Lock()
 	// 最新的文件放在最前面
 	t.diskFiles[0].PushFront(d)
-	log.Logger.Debug(fmt.Sprintf("now we have %d diskFiles in level-0.", t.diskFiles[0].Len()))
+	// log.Logger.Debug(fmt.Sprintf("now we have %d diskFiles in level-0.", t.diskFiles[0].Len()))
 	if t.diskFiles[0].Len() >= t.config.MaxLevel0FileCnt {
 		go t.compact(0)
 	}
@@ -198,6 +201,7 @@ func (t *LSMTree) compact(level int) {
 			files_1 = append(files_1, d)
 		}
 		t.drwm.RUnlock()
+		log.Logger.Debug(fmt.Sprintf("Start compacting. Now we have %d files in level0, %d files in level1\n", t.diskFiles[0].Len(), t.diskFiles[1].Len()))
 		// 根据得到的level0文件指针和level1文件指针进行合并
 		new_files1 := t.compact_0(files_0, files_1)
 		t.drwm.Lock()
@@ -221,13 +225,25 @@ func (t *LSMTree) compact(level int) {
 	}
 }
 
-/** 接收level0的所有文件，以及level1的所有key与level0有重叠的文件，合并成新的level1文件并返回 */
+/** 接收level0的所有文件，以及level1的所有key与level0有重叠的文件，合并成新的level1文件并返回
+ * 整体的合并的过程是：先将level0的所有文件合并成一个，再将合并后的文件与level1的文件逐个合并
+ */
 func (t *LSMTree) compact_0(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFile {
+	log.Logger.Debug(fmt.Sprintf("compacting... files0_cnt_to_merge: %d, files1_cnt_to_merge: %d", len(files_0), len(files_1)))
 	// 先对files0进行排序
 	elems := make([][]*core.Element, len(files_0))
+	// file0_elem_cnt := 0
 	for i := 0; i < len(files_0); i++ {
 		elems[i] = files_0[i].AllElements()
+		// file0_elem_cnt += len(elems[i])
+		// log.Logger.Debug(fmt.Sprintf("file0 size : %d", len(elems[i])))
 	}
+	// file1_elem_cnt_truly := 0
+	// for i := 0; i < len(files_1); i++ {
+	// 	tmp := files_1[i].AllElements()
+	// 	file1_elem_cnt_truly += len(tmp)
+	// 	log.Logger.Debug(fmt.Sprintf("file1 size : %d", len(tmp)))
+	// }
 	sorted_files0_elems := MergeUpdate(elems)
 	new_files1 := make([]*DiskFile, 0)
 
@@ -244,16 +260,28 @@ func (t *LSMTree) compact_0(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFil
 		return new_files1
 	}
 
-	for i := 0; i < len(files_1); i++ {
-		old_file_elems := files_1[i].AllElements()
-		index1 := 0
+	var file1_idx int
+	var old_file_elems []*core.Element
+	var index1 int
+	file1_elem_cnt := 0
+	merge_elem_cnt := 0
+	for file1_idx = 0; file1_idx < len(files_1); file1_idx++ {
+		old_file_elems = files_1[file1_idx].AllElements()
+		file1_elem_cnt += len(old_file_elems)
+		index1 = 0
 		for {
-			if index1 == len(old_file_elems) {
+			if index1 >= len(old_file_elems) {
+				// log.Logger.Debug(fmt.Sprintf("compact_0. break..index1..new_files_elems: %d", len(new_file_elems)))
 				break
 			}
-			if index0 == len(sorted_files0_elems) {
+			if index0 >= len(sorted_files0_elems) {
+				// log.Logger.Debug(fmt.Sprintf("compact_0. break..index0..new_files_elems: %d", len(new_file_elems)))
+				// 将file1（可能大于1个文件）剩下的元素也加到new_file_elems中
+				new_file_elems = append(new_file_elems, old_file_elems[index1:]...)
+				index1 = len(old_file_elems)
 				break
 			}
+
 			if old_file_elems[index1].Key < sorted_files0_elems[index0].Key {
 				new_file_elems = append(new_file_elems, old_file_elems[index1])
 				index1 += 1
@@ -265,16 +293,33 @@ func (t *LSMTree) compact_0(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFil
 			if len(new_file_elems) >= t.config.LevelLFileSize {
 				new_disk_file := NewDiskFile(new_file_elems, 1)
 				new_files1 = append(new_files1, new_disk_file)
+				// log.Logger.Debug(fmt.Sprintf("compact_0. write new file, new filw size: %d", len(new_file_elems)))
 				new_file_elems = make([]*core.Element, 0)
+				merge_elem_cnt += t.config.LevelLFileSize
+
 			}
 		}
 
 	}
+
+	// files_1 的最后一个文件可能有key大于maxkey的元素，需将这部分也写入文件
+	// new_file_elems = append(new_file_elems, old_file_elems[index1:]...)
+	// log.Logger.Debug(fmt.Sprintf("compact_0. new_files_elems: %d", len(new_file_elems)))
+
+	// sorted_files0_elems 也可能有剩余，这种情况发生在files0中出现比所有file1的key都大的key的情况下
+	new_file_elems = append(new_file_elems, sorted_files0_elems[index0:]...)
+	// log.Logger.Debug(fmt.Sprintf("compact_0. new_files_elems: %d", len(new_file_elems)))
+
 	// new_file_elems 可能还有元素，写入到新文件中
-	if len(new_file_elems) > 0 {
-		new_disk_file := NewDiskFile(new_file_elems, 1)
+	for len(new_file_elems) > 0 {
+		upperbound := Min(t.config.LevelLFileSize, len(new_file_elems))
+		new_disk_file := NewDiskFile(new_file_elems[:upperbound], 1)
 		new_files1 = append(new_files1, new_disk_file)
+		new_file_elems = new_file_elems[upperbound:]
+		merge_elem_cnt += upperbound
 	}
+	// log.Logger.Debug(fmt.Sprintf("compact_0. files0 elems cnt: %d, sorted_files0_elems cnt: %d", file0_elem_cnt, len(sorted_files0_elems)))
+	// log.Logger.Debug(fmt.Sprintf("compact_0. files1 elems cnt: %d, merge_elems cnt: %d", file1_elem_cnt_truly, merge_elem_cnt))
 
 	return new_files1
 }

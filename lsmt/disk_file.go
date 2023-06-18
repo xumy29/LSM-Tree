@@ -129,15 +129,24 @@ func (d DiskFile) AllElements() []*core.Element {
 			end, _ = strconv.Atoi(indexElems[i+1].Value)
 		}
 		dec = gob.NewDecoder(bytes.NewBuffer(d.buf.Bytes()[start:end]))
-		// var e core.Element
 		for {
 			elems[cnt] = &core.Element{}
 			if dec.Decode(elems[cnt]) != nil {
 				break
 			}
+			// elems = append(elems, &tmp)
 			cnt += 1
 		}
 
 	}
+	// log.Logger.Debug("DiskFile AllElements cnt", "expected", d.size, "got", len(elems), "level", d.level)
 	return elems[:len(elems)-1]
+}
+
+func (d *DiskFile) GetID() int {
+	return int(d.id)
+}
+
+func (d *DiskFile) GetSize() int {
+	return d.size
 }

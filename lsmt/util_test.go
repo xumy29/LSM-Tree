@@ -61,6 +61,8 @@ func TestListInsert(t *testing.T) {
 		{Key: "5", Value: "Five"},
 		{Key: "6", Value: "Six"},
 		{Key: "7", Value: "Seven"},
+		// {Key: "8", Value: "Eight"},
+		// {Key: "9", Value: "Nine"},
 	}
 
 	d1 := NewDiskFile(elems[0:2], 1)

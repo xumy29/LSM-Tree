@@ -7,10 +7,10 @@ import (
 	"reflect"
 )
 
-func GenerateData(elemCnt int) []core.Element {
-	elems := make([]core.Element, elemCnt)
+func GenerateData(elemCnt int) []*core.Element {
+	elems := make([]*core.Element, elemCnt)
 	for i := 0; i < elemCnt; i++ {
-		elem := core.Element{
+		elem := &core.Element{
 			Key:   fmt.Sprintf("key%d", i),
 			Value: fmt.Sprintf("val%d", i),
 		}
@@ -152,4 +152,8 @@ func MergeUpdate(elems [][]*core.Element) []*core.Element {
 		res = append(res, elems[i][indices[i]:]...)
 	}
 	return res
+}
+
+func (t *LSMTree) GetDiskFiles() map[int]*list.List {
+	return t.diskFiles
 }

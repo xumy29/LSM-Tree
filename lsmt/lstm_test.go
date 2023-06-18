@@ -82,8 +82,14 @@ func TestFlushedToDisk(t *testing.T) {
 	tree.Put("6", "Six")
 	tree.Put("7", "Seven")
 	tree.Put("8", "Eight")
+
+	// go func() {
+	// 	time.Sleep(1 * time.Millisecond)
+	// 	tree.Put("9", "Nine")
+	// 	tree.Put("91", "NineOne")
+	// }()
 	// 等待写入到磁盘和compaction
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
 	if tree.diskFiles[0].Len() != 0 {
 		t.Errorf("got disk level-0 files num %d; want 0", tree.diskFiles[0].Len())
 	}
@@ -99,26 +105,6 @@ func TestFlushedToDisk(t *testing.T) {
 		}
 	}
 }
-
-// func TestCompactionCollapse(t *testing.T) {
-// 	t.Parallel()
-// 	tree := NewLSMTree(1)
-// 	tree.Put("1", "One")
-// 	time.Sleep(time.Second)
-// 	tree.Put("1", "ONE")
-// 	// 等待写入到磁盘和compaction.
-// 	time.Sleep(3 * time.Second)
-// 	if tree.diskFiles.Len() != 1 {
-// 		t.Errorf("got disk file size %d; want 1", tree.diskFiles.Len())
-// 	}
-// 	if tree.diskFiles.Len() == 1 {
-// 		got := tree.diskFiles.Front().Value.(*DiskFile).AllElements()
-// 		want := []core.Element{{Key: "1", Value: "ONE"}}
-// 		if !reflect.DeepEqual(want, got) {
-// 			t.Errorf("got result %v; want %v", got, want)
-// 		}
-// 	}
-// }
 
 // func TestDelete(t *testing.T) {
 // 	tree := NewLSMTree(2)
@@ -174,24 +160,24 @@ func GetData(elems []core.Element, lsmTree *LSMTree) {
 	}
 }
 
-func benchmarkPut(b *testing.B) {
-	elemCnt := 10000
-	len2Flush := elemCnt / 10
+// func benchmarkPut(b *testing.B) {
+// 	elemCnt := 10000
+// 	len2Flush := elemCnt / 10
 
-	elems := GenerateData(elemCnt)
-	for k := 0; k < b.N; k++ {
-		// startTime := time.Now()
+// 	elems := GenerateData(elemCnt)
+// 	for k := 0; k < b.N; k++ {
+// 		// startTime := time.Now()
 
-		lsmTree := NewLSMTree(len2Flush)
-		PutData(elems, lsmTree)
-		lsmTree.Destroy()
+// 		lsmTree := NewLSMTree(len2Flush)
+// 		PutData(elems, lsmTree)
+// 		lsmTree.Destroy()
 
-		// endTime := time.Now()
-		// elapsed := endTime.Sub(startTime).Milliseconds()
+// 		// endTime := time.Now()
+// 		// elapsed := endTime.Sub(startTime).Milliseconds()
 
-		// fmt.Printf("第 %d 次迭代的执行时间：%d 毫秒\n", k+1, elapsed)
-	}
-}
+// 		// fmt.Printf("第 %d 次迭代的执行时间：%d 毫秒\n", k+1, elapsed)
+// 	}
+// }
 
 // func BenchmarkGet(b *testing.B) {
 // 	elemCnt := 10000

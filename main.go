@@ -2,6 +2,7 @@ package main
 
 import (
 	"LSM-Tree/avlTree"
+	log "LSM-Tree/log"
 	"LSM-Tree/lsmt"
 	"fmt"
 	"math/rand"
@@ -11,11 +12,34 @@ import (
 func main() {
 	elems := lsmt.GenerateData(1000000)
 
-	lsmTree := lsmt.NewLSMTree(500)
-	for i := 0; i < len(elems); i++ {
-		lsmTree.Put(elems[i].Key, elems[i].Value)
+	lsmTree := lsmt.NewLSMTree(0)
+
+	block_size := 10000
+	index := 0
+	for {
+		var j int
+		for j = index; j < lsmt.Min(index+block_size, len(elems)); j++ {
+			lsmTree.Put(elems[j].Key, elems[j].Value)
+		}
+		index = j
+		if index == len(elems) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	fmt.Printf("The lsmTree has %d nodes in total\n", lsmTree.TotalSize)
+	for {
+		time.Sleep(5 * time.Second)
+		files := lsmTree.GetDiskFiles()
+		if files[0].Len() == 0 {
+			log.Logger.Debug("final file1 sizes:")
+			for e := files[1].Front(); e != nil; e = e.Next() {
+				d := e.Value.(*lsmt.DiskFile)
+				log.Logger.Debug(fmt.Sprintf("file %d, size = %d", d.GetID(), d.GetSize()))
+			}
+			break
+		}
+	}
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("key%d", rand.Intn(1000))
