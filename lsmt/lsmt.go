@@ -65,17 +65,17 @@ func NewLSMTree(flushThreshold int) *LSMTree {
 		isCompacting:   false,
 	}
 	if t.flushThreshold == 0 {
-		t.flushThreshold = config.DefaultConfig().ElemCnt2Flush
+		t.flushThreshold = t.config.ElemCnt2Flush
 	}
-	// 先初始化最低几层，已足够用
-	for i := 0; i < 5; i++ {
+
+	for i := 0; i < t.config.FileLevelCnt; i++ {
 		t.diskFiles[i] = list.New()
 	}
 	return t
 }
 
 func (t *LSMTree) Put(key, value string) {
-	if value == config.DefaultConfig().DeleteValue {
+	if value == t.config.DeleteValue {
 		log.Logger.Error(fmt.Sprintf("Error occurs during Put(key:'%v',value:'%v'). This value is reserved as special delete value, try another value or use escape characters", key, value))
 		return
 	}
@@ -95,11 +95,11 @@ func (t *LSMTree) Delete(key string) {
 	t.rwm.Lock()
 	defer t.rwm.Unlock()
 	log.Trace(fmt.Sprintf("Delete(key: %v)", key))
-	t.TotalSize += t.tree.Add(key, config.DefaultConfig().DeleteValue)
+	t.TotalSize += t.tree.Add(key, t.config.DeleteValue)
 }
 
 func (t *LSMTree) Get(key string) (string, error) {
-	deleteVal := config.DefaultConfig().DeleteValue
+	deleteVal := t.config.DeleteValue
 	t.rwm.RLock()
 	if node := t.tree.Search(key); node != nil {
 		if node.Value == deleteVal {
@@ -126,6 +126,7 @@ func (t *LSMTree) Get(key string) (string, error) {
 	// The key is not in memory. Search in disk files.
 	t.drwm.RLock()
 	defer t.drwm.RUnlock()
+
 	// 从最前面的最新磁盘文件开始往后搜，搜到的第一个即返回
 	for e := t.diskFiles[0].Front(); e != nil; e = e.Next() {
 		d := e.Value.(*DiskFile)
@@ -138,6 +139,33 @@ func (t *LSMTree) Get(key string) (string, error) {
 			return elem.Value, nil
 		}
 	}
+
+	// 从level1开始，每层文件都是有序的，只需找到该key所在的文件，在该文件内搜索即可
+	for i := 1; i < t.config.FileLevelCnt; i++ {
+		log.Trace(fmt.Sprintf("get key %v, current file level: %d\n", key, i))
+		files := t.diskFiles[i]
+		if files.Len() == 0 {
+			continue
+		}
+		for e := files.Front(); e != nil; e = e.Next() {
+			d := e.Value.(*DiskFile)
+			log.Trace("file key range", "start", d.start_key, "end", d.end_key)
+			if d.start_key <= key && d.end_key >= key {
+				log.Trace("found file")
+				elem, err := d.Search(key)
+				if err == nil {
+					// found in disk
+					if elem.Value == deleteVal {
+						return "", fmt.Errorf("key %s was deleted", key)
+					}
+					return elem.Value, nil
+				}
+				// 不在此层级中，往下一层找
+				break
+			}
+		}
+	}
+
 	return "", fmt.Errorf("key %s not found", key)
 }
 
@@ -202,6 +230,7 @@ func (t *LSMTree) compact(level int) {
 		}
 		t.drwm.RUnlock()
 		log.Logger.Debug(fmt.Sprintf("Start compacting. Now we have %d files in level0, %d files in level1\n", t.diskFiles[0].Len(), t.diskFiles[1].Len()))
+		// t.Print_Files_1_Ranges()
 		// 根据得到的level0文件指针和level1文件指针进行合并
 		new_files1 := t.compact_0(files_0, files_1)
 		t.drwm.Lock()
@@ -213,16 +242,62 @@ func (t *LSMTree) compact(level int) {
 			ListRemove(t.diskFiles[1], file1)
 		}
 		// 根据前后文件的key，插入到合适的地方
-		// 具体地，插入的地方应该满足：前一个文件的end_key比new_files1最小的start_key小，后一个文件的start_key比new_files1最大的end_key大
-		// 由于new_files1本身是有序的，找到一个位置即可连续插入
-		// todo : 完成 ListInsert(t.diskFiles[1], new_files1)
-		for _, file1 := range new_files1 {
-			t.diskFiles[1].PushBack(file1)
-		}
+		ListInsert(t.diskFiles[1], new_files1)
 
 		log.Logger.Debug(fmt.Sprintf("Successfully compact. Now we have %d files in level0, %d files in level1\n", t.diskFiles[0].Len(), t.diskFiles[1].Len()))
+		// t.Print_Files_1_Ranges()
 		t.drwm.Unlock()
 	}
+}
+
+/** 接收level0的所有文件，以及level1的所有key与level0有重叠的文件，合并成新的level1文件并返回
+ * 整体的合并的过程是：将level0的所有文件和level1的所有文件分别合并成一个，再将合并后的两个文件进行合并并写入新文件
+ */
+func (t *LSMTree) compact_0_V2(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFile {
+	elems_0 := make([][]*core.Element, len(files_0))
+	elems_1 := make([][]*core.Element, len(files_1))
+	for i := 0; i < len(files_0); i++ {
+		elems_0[i] = files_0[i].AllElements()
+	}
+	for i := 0; i < len(files_1); i++ {
+		elems_1[i] = files_1[i].AllElements()
+	}
+	sorted_files0_elems := MergeUpdate(elems_0)
+	log.Logger.Debug(fmt.Sprintf("sorted_files0_elems size : %d, key range[%v,%v]", len(sorted_files0_elems),
+		sorted_files0_elems[0].Key, sorted_files0_elems[len(sorted_files0_elems)-1].Key))
+
+	sorted_files1_elems := MergeUpdate(elems_1)
+	if len(sorted_files1_elems) > 0 {
+		log.Logger.Debug(fmt.Sprintf("sorted_files1_elems size : %d, key range[%v,%v]", len(sorted_files1_elems),
+			sorted_files1_elems[0].Key, sorted_files1_elems[len(sorted_files1_elems)-1].Key))
+	}
+
+	index0 := 0
+	index1 := 0
+	merge_elems := make([]*core.Element, 0)
+	for index0 < len(sorted_files0_elems) && index1 < len(sorted_files1_elems) {
+		if sorted_files0_elems[index0].Key < sorted_files1_elems[index1].Key {
+			merge_elems = append(merge_elems, sorted_files0_elems[index0])
+			index0 += 1
+		} else {
+			merge_elems = append(merge_elems, sorted_files1_elems[index1])
+			index1 += 1
+		}
+	}
+	merge_elems = append(merge_elems, sorted_files0_elems[index0:]...)
+	merge_elems = append(merge_elems, sorted_files1_elems[index1:]...)
+	log.Logger.Debug(fmt.Sprintf("merged_files1_elems size : %d, key range[%v,%v]", len(merge_elems),
+		merge_elems[0].Key, merge_elems[len(merge_elems)-1].Key))
+	i := 0
+	new_files1 := make([]*DiskFile, 0)
+	for i < len(merge_elems) {
+		upperbound := Min(i+t.config.LevelLFileSize, len(merge_elems))
+		new_disk_file := NewDiskFile(merge_elems[i:upperbound], 1)
+		log.Logger.Debug(fmt.Sprintf("new file1 size : %d, key range[%v,%v]", upperbound-i, new_disk_file.start_key, new_disk_file.end_key))
+		new_files1 = append(new_files1, new_disk_file)
+		i = upperbound
+	}
+	return new_files1
 }
 
 /** 接收level0的所有文件，以及level1的所有key与level0有重叠的文件，合并成新的level1文件并返回
@@ -235,16 +310,15 @@ func (t *LSMTree) compact_0(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFil
 	// file0_elem_cnt := 0
 	for i := 0; i < len(files_0); i++ {
 		elems[i] = files_0[i].AllElements()
-		// file0_elem_cnt += len(elems[i])
-		// log.Logger.Debug(fmt.Sprintf("file0 size : %d", len(elems[i])))
+		// log.Trace(fmt.Sprintf("file0 size : %d, key range[%v,%v]", len(elems[i]), files_0[i].start_key, files_0[i].end_key))
 	}
-	// file1_elem_cnt_truly := 0
 	// for i := 0; i < len(files_1); i++ {
 	// 	tmp := files_1[i].AllElements()
-	// 	file1_elem_cnt_truly += len(tmp)
-	// 	log.Logger.Debug(fmt.Sprintf("file1 size : %d", len(tmp)))
+	// 	log.Trace(fmt.Sprintf("file1 size : %d, key range[%v,%v]", len(tmp), files_1[i].start_key, files_1[i].end_key))
 	// }
 	sorted_files0_elems := MergeUpdate(elems)
+	log.Trace(fmt.Sprintf("sorted_files0_elems size : %d, key range[%v,%v]", len(sorted_files0_elems),
+		sorted_files0_elems[0].Key, sorted_files0_elems[len(sorted_files0_elems)-1].Key))
 	new_files1 := make([]*DiskFile, 0)
 
 	index0 := 0
@@ -254,6 +328,7 @@ func (t *LSMTree) compact_0(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFil
 		for index0 < len(sorted_files0_elems) {
 			upperbound := Min(index0+t.config.LevelLFileSize, len(sorted_files0_elems))
 			new_disk_file := NewDiskFile(sorted_files0_elems[index0:upperbound], 1)
+			log.Trace(fmt.Sprintf("new file1 size : %d, key range[%v,%v]", upperbound-index0, new_disk_file.start_key, new_disk_file.end_key))
 			new_files1 = append(new_files1, new_disk_file)
 			index0 = upperbound
 		}
@@ -293,6 +368,7 @@ func (t *LSMTree) compact_0(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFil
 			if len(new_file_elems) >= t.config.LevelLFileSize {
 				new_disk_file := NewDiskFile(new_file_elems, 1)
 				new_files1 = append(new_files1, new_disk_file)
+				log.Trace(fmt.Sprintf("new file1 size : %d, key range[%v,%v]", len(new_file_elems), new_disk_file.start_key, new_disk_file.end_key))
 				// log.Logger.Debug(fmt.Sprintf("compact_0. write new file, new filw size: %d", len(new_file_elems)))
 				new_file_elems = make([]*core.Element, 0)
 				merge_elem_cnt += t.config.LevelLFileSize
@@ -314,6 +390,7 @@ func (t *LSMTree) compact_0(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFil
 	for len(new_file_elems) > 0 {
 		upperbound := Min(t.config.LevelLFileSize, len(new_file_elems))
 		new_disk_file := NewDiskFile(new_file_elems[:upperbound], 1)
+		log.Trace(fmt.Sprintf("new file1 size : %d, key range[%v,%v]", upperbound, new_disk_file.start_key, new_disk_file.end_key))
 		new_files1 = append(new_files1, new_disk_file)
 		new_file_elems = new_file_elems[upperbound:]
 		merge_elem_cnt += upperbound

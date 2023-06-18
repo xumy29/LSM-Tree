@@ -28,18 +28,23 @@ func main() {
 		time.Sleep(20 * time.Millisecond)
 	}
 	fmt.Printf("The lsmTree has %d nodes in total\n", lsmTree.TotalSize)
+	cnt := 0
 	for {
 		time.Sleep(5 * time.Second)
 		files := lsmTree.GetDiskFiles()
-		if files[0].Len() == 0 {
-			log.Logger.Debug("final file1 sizes:")
-			for e := files[1].Front(); e != nil; e = e.Next() {
-				d := e.Value.(*lsmt.DiskFile)
-				log.Logger.Debug(fmt.Sprintf("file %d, size = %d", d.GetID(), d.GetSize()))
-			}
-			break
+		// if files[0].Len() < 4 { //不知道是不是这个退出条件不太好，有时会导致死循环，重新运行即可
+		log.Logger.Debug("final file1 sizes:")
+		for e := files[1].Front(); e != nil; e = e.Next() {
+			d := e.Value.(*lsmt.DiskFile)
+			key_range := d.GetKeyRange()
+			log.Logger.Debug(fmt.Sprintf("file %d, size = %d, key_range=[%v,%v]", d.GetID(), d.GetSize(), key_range[0], key_range[1]))
+			cnt += d.GetSize()
 		}
+		log.Logger.Debug(fmt.Sprintf("total sizes: %d", cnt))
+		break
+		// }
 	}
+	lsmTree.Print_Files_1_Ranges()
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("key%d", rand.Intn(1000))
@@ -51,6 +56,7 @@ func main() {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	return
 
 	for i := 0; i < 100000; i++ {
 		key := fmt.Sprintf("key%d", rand.Intn(100000))

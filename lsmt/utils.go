@@ -2,6 +2,7 @@ package lsmt
 
 import (
 	"LSM-Tree/core"
+	log "LSM-Tree/log"
 	"container/list"
 	"fmt"
 	"reflect"
@@ -156,4 +157,16 @@ func MergeUpdate(elems [][]*core.Element) []*core.Element {
 
 func (t *LSMTree) GetDiskFiles() map[int]*list.List {
 	return t.diskFiles
+}
+
+func (t *LSMTree) Print_Files_1_Ranges() {
+	files1 := t.diskFiles[1]
+	ids := make([]int, 0)
+	ranges := make([][2]string, 0)
+	for e := files1.Front(); e != nil; e = e.Next() {
+		d := e.Value.(*DiskFile)
+		ids = append(ids, int(d.id))
+		ranges = append(ranges, d.GetKeyRange())
+	}
+	log.Logger.Debug("files1 info", "ids", ids, "ranges", ranges)
 }
