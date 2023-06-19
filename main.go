@@ -16,6 +16,7 @@ func main() {
 
 	block_size := 10000
 	index := 0
+	fmt.Printf("Adding %d key-value pairs...\n", len(elems))
 	for {
 		var j int
 		for j = index; j < lsmt.Min(index+block_size, len(elems)); j++ {
@@ -27,27 +28,17 @@ func main() {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	fmt.Printf("The lsmTree has %d nodes in total\n", lsmTree.TotalSize)
-	cnt := 0
-	for {
-		time.Sleep(5 * time.Second)
-		files := lsmTree.GetDiskFiles()
-		// if files[0].Len() < 4 { //不知道是不是这个退出条件不太好，有时会导致死循环，重新运行即可
-		log.Logger.Debug("final file1 sizes:")
-		for e := files[1].Front(); e != nil; e = e.Next() {
-			d := e.Value.(*lsmt.DiskFile)
-			key_range := d.GetKeyRange()
-			log.Logger.Debug(fmt.Sprintf("file %d, size = %d, key_range=[%v,%v]", d.GetID(), d.GetSize(), key_range[0], key_range[1]))
-			cnt += d.GetSize()
-		}
-		log.Logger.Debug(fmt.Sprintf("total sizes: %d", cnt))
-		break
-		// }
-	}
-	lsmTree.Print_Files_1_Ranges()
+	fmt.Printf("The lsmTree now has %d nodes in total\n", lsmTree.TotalSize)
 
+	time.Sleep(5 * time.Second)
+	lsmTree.Log_file_info()
+
+	fmt.Printf("Get==1\n")
+	log.Logger.Debug("Get==1")
+	keys := make([]string, 0)
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("key%d", rand.Intn(1000))
+		keys = append(keys, key)
 		val, err := lsmTree.Get(key)
 		if err != nil {
 			panic(err)
@@ -56,15 +47,70 @@ func main() {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return
+
+	fmt.Printf("delete all keys with postfix '0'\n")
 
 	for i := 0; i < 100000; i++ {
-		key := fmt.Sprintf("key%d", rand.Intn(100000))
+		key := fmt.Sprintf("key%d", i*10)
 		lsmTree.Delete(key)
 	}
+	lsmTree.Log_file_info()
 
+	fmt.Printf("Get==2\n")
+	log.Logger.Debug("Get==2")
 	for i := 0; i < 10; i++ {
-		key := fmt.Sprintf("key%d", rand.Intn(1000))
+		key := keys[i]
+		val, err := lsmTree.Get(key)
+		if err != nil {
+			fmt.Printf("%v\n", err)
+		} else {
+			fmt.Printf("search key %v, got value %v\n", key, val)
+		}
+		// time.Sleep(500 * time.Millisecond)
+	}
+
+	time.Sleep(7 * time.Second)
+	lsmTree.Log_file_info()
+	fmt.Printf("Get==3\n")
+	log.Logger.Debug("Get==3")
+	for i := 0; i < 10; i++ {
+		key := keys[i]
+		val, err := lsmTree.Get(key)
+		if err != nil {
+			fmt.Printf("%v\n", err)
+		} else {
+			fmt.Printf("search key %v, got value %v\n", key, val)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	fmt.Printf("updates all keys with postfix '7'\n")
+
+	for i := 0; i < 100000; i++ {
+		key := fmt.Sprintf("key%d", i*10+7)
+		lsmTree.Put(key, "updated-"+fmt.Sprintf("value%d", i*10+7))
+	}
+	lsmTree.Log_file_info()
+
+	fmt.Printf("Get==4\n")
+	log.Logger.Debug("Get==4")
+	for i := 0; i < 10; i++ {
+		key := keys[i]
+		val, err := lsmTree.Get(key)
+		if err != nil {
+			fmt.Printf("%v\n", err)
+		} else {
+			fmt.Printf("search key %v, got value %v\n", key, val)
+		}
+		// time.Sleep(500 * time.Millisecond)
+	}
+
+	time.Sleep(7 * time.Second)
+	lsmTree.Log_file_info()
+	fmt.Printf("Get==5\n")
+	log.Logger.Debug("Get==5")
+	for i := 0; i < 10; i++ {
+		key := keys[i]
 		val, err := lsmTree.Get(key)
 		if err != nil {
 			fmt.Printf("%v\n", err)
@@ -80,24 +126,6 @@ func main() {
 	} else {
 		fmt.Printf("search key %v, got value %v\n", "key1000001", val)
 	}
-
-	// for i := 0; i < len(elems); i++ {
-	// 	lsmTree.Get(elems[i].Key)
-	// }
-	// time.Sleep(5 * time.Second)
-
-	// for k := 0; k < 10; k++ {
-	// 	fmt.Printf("GetData try %d\n", k+1)
-	// 	lsmTree.Print()
-	// 	for i := 0; i < len(elems); i++ {
-	// 		_, err := lsmTree.Get(elems[i].Key)
-	// 		if err != nil {
-	// 			fmt.Printf("%v\n", err)
-	// 			return
-	// 		}
-	// 	}
-	// }
-	// testTrees()
 
 }
 

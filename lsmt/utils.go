@@ -117,7 +117,7 @@ func DiskList2Slice(l *list.List) []*DiskFile {
 
 /** 对几个level0文件的元素进行合并和更新
  * 当出现相同key时，要注意新旧关系
- * 参数elems默认从level0的链表转过来，index越小的文件越新
+ * 参数elems默认从level0的链表按顺序转换过来，index越小的文件越新
  */
 func MergeUpdate(elems [][]*core.Element) []*core.Element {
 	total_num := 0
@@ -147,7 +147,12 @@ func MergeUpdate(elems [][]*core.Element) []*core.Element {
 			break
 		}
 		res = append(res, elems[min_key_disk_index][indices[min_key_disk_index]])
-		indices[min_key_disk_index] += 1
+		// 更新min_key_disk_index对应的数组的下标，同时也去除其他文件中的重复key的较旧记录
+		for i := 0; i < n; i++ {
+			if indices[i] < len(elems[i]) && elems[i][indices[i]].Key == min_key {
+				indices[i] += 1
+			}
+		}
 	}
 	for i := 0; i < n; i++ {
 		res = append(res, elems[i][indices[i]:]...)
@@ -159,14 +164,32 @@ func (t *LSMTree) GetDiskFiles() map[int]*list.List {
 	return t.diskFiles
 }
 
-func (t *LSMTree) Print_Files_1_Ranges() {
-	files1 := t.diskFiles[1]
-	ids := make([]int, 0)
-	ranges := make([][2]string, 0)
-	for e := files1.Front(); e != nil; e = e.Next() {
-		d := e.Value.(*DiskFile)
-		ids = append(ids, int(d.id))
-		ranges = append(ranges, d.GetKeyRange())
+func (t *LSMTree) Print_Files_0_1_Ranges() {
+	for i := 0; i < 2; i++ {
+		files := t.diskFiles[i]
+		ids := make([]int, 0)
+		ranges := make([][2]string, 0)
+		for e := files.Front(); e != nil; e = e.Next() {
+			d := e.Value.(*DiskFile)
+			ids = append(ids, int(d.id))
+			ranges = append(ranges, d.GetKeyRange())
+		}
+		log.Logger.Debug("files info", "level", i, "file_cnt", files.Len(), "ids", ids, "ranges", ranges)
 	}
-	log.Logger.Debug("files1 info", "ids", ids, "ranges", ranges)
+
+}
+
+func (t *LSMTree) Log_file_info() {
+	t.Print_Files_0_1_Ranges()
+	files := t.GetDiskFiles()
+	cnt := 0
+	log.Logger.Debug("final file1 info:")
+	for e := files[1].Front(); e != nil; e = e.Next() {
+		d := e.Value.(*DiskFile)
+		key_range := d.GetKeyRange()
+		log.Logger.Debug(fmt.Sprintf("file %d, size = %d, key_range=[%v,%v]", d.GetID(), d.GetSize(), key_range[0], key_range[1]))
+		cnt += d.GetSize()
+	}
+	log.Logger.Debug(fmt.Sprintf("total sizes: %d", cnt))
+
 }
