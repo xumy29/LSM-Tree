@@ -21,14 +21,13 @@ var (
 /** 模拟一个磁盘文件
  */
 type DiskFile struct {
-	index *avlTree.AVLTree
-	id    int32
-	// data  io.ReadSeeker
-	size      int
-	buf       bytes.Buffer
-	start_key string
-	end_key   string
-	level     int
+	level     int              // 所属磁盘层级
+	id        int32            // 每个文件独有的ID
+	start_key string           // 文件中的最小键
+	end_key   string           // 文件中的最大键
+	index     *avlTree.AVLTree // 索引树
+	size      int              // 文件中的键值对个数
+	buf       bytes.Buffer     // 字节数组，键值对以字节数组形式顺序存储在buf中
 }
 
 func (d DiskFile) Empty() bool {
@@ -74,7 +73,7 @@ func NewDiskFile(elems []*core.Element, level int) *DiskFile {
  * 由于磁盘文件的索引树只索引了一部分elem，所以需要先从索引树中通过key的比较得到对应elem的存储区间，
 再遍历该区间查找elem
 */
-func (d DiskFile) Search(key string) (core.Element, error) {
+func (d *DiskFile) Search(key string) (core.Element, error) {
 	canErr := fmt.Errorf("key %s not found in disk file", key)
 	if d.Empty() {
 		return core.Element{}, canErr
@@ -115,9 +114,8 @@ func (d DiskFile) Search(key string) (core.Element, error) {
 }
 
 /** 返回一个磁盘文件中的所有elem
- * 注意由于删除操作，磁盘文件的有效内容可能不连续，因此需要根据索引树来访问磁盘文件
  */
-func (d DiskFile) AllElements() []*core.Element {
+func (d *DiskFile) AllElements() []*core.Element {
 	indexElems := d.index.Inorder()
 	var elems []*core.Element = make([]*core.Element, d.size+1)
 	var dec *gob.Decoder

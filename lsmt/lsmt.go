@@ -12,23 +12,24 @@ import (
 )
 
 type LSMTree struct {
-	/* 控制内存中两棵树的并发读写 */
+	/* 控制内存中tree和treesInFlush的并发读写 */
 	rwm  sync.RWMutex
 	tree *avlTree.AVLTree
 	/* 从tree写入到硬盘的中间缓冲区列表，每个元素的类型是 *avlTree.AVLTree，指向一个缓冲区 */
 	treesInFlush   *list.List
 	flushThreshold int
+
 	/* 控制对磁盘文件的并发读写 */
 	drwm sync.RWMutex
 	/** 多级磁盘文件
-	 * key即磁盘level，最低层是0，value即该level的磁盘文件列表
-	 * flush时新文件插入到最前面 */
+	 * key即磁盘level，最低层是0，value即该level的磁盘文件列表 */
 	diskFiles map[int]*list.List
-	/* 与子协程沟通的管道 */
-	stop chan struct{}
+
 	/* 包括内存中的元素、正在flush到磁盘和已经在磁盘中的元素个数 */
-	TotalSize    int
-	config       *config.Config
+	TotalSize int
+
+	config *config.Config
+	/* 是否正在进行磁盘文件归并 */
 	isCompacting bool
 }
 
@@ -57,7 +58,6 @@ type LSMTree struct {
 func NewLSMTree(flushThreshold int) *LSMTree {
 	t := &LSMTree{
 		flushThreshold: flushThreshold,
-		stop:           make(chan struct{}, 1),
 		tree:           &avlTree.AVLTree{},
 		treesInFlush:   list.New(),
 		diskFiles:      make(map[int]*list.List),
@@ -348,8 +348,8 @@ func (t *LSMTree) compact_0(files_0 []*DiskFile, files_1 []*DiskFile) []*DiskFil
 // 	return newDiskFile
 // }
 
-func (t *LSMTree) Destroy() {
-	// 结束子协程
-	t.stop <- struct{}{}
-	<-t.stop
-}
+// func (t *LSMTree) Destroy() {
+// 	// 结束子协程
+// 	t.stop <- struct{}{}
+// 	<-t.stop
+// }
