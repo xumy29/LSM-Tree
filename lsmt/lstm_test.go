@@ -274,17 +274,34 @@ func TestLargeScaleLogic(t *testing.T) {
 //// benchmark test ////
 ///////////////////////////////////////////////////
 
-func PutData(elems []core.Element, lsmTree *LSMTree) {
-	for i := 0; i < len(elems); i++ {
-		lsmTree.Put(elems[i].Key, elems[i].Value)
+func BenchmarkPutData(b *testing.B) {
+	elems := GenerateData(1000000)
+
+	for i := 0; i < b.N; i++ {
+		lsmTree := NewLSMTree(0)
+		for j := 0; j < len(elems); j++ {
+			lsmTree.Put(elems[j].Key, elems[j].Value)
+		}
+		// fmt.Printf("The lsmTree now has %d nodes in total\n", lsmTree.TotalSize)
 	}
 }
 
-func GetData(elems []core.Element, lsmTree *LSMTree) {
-	for i := 0; i < len(elems); i++ {
-		_, err := lsmTree.Get(elems[i].Key)
-		if err != nil {
-			fmt.Printf("getData wrong! %v\n", err)
+func BenchmarkGetData(b *testing.B) {
+	elems := GenerateData(1000000)
+	lsmTree := NewLSMTree(0)
+	for j := 0; j < len(elems); j++ {
+		lsmTree.Put(elems[j].Key, elems[j].Value)
+	}
+
+	for i := 0; i < b.N; i++ {
+		for j := 0; j < 100000; j++ {
+			r := rand.Intn(1000000)
+			_, err := lsmTree.Get(elems[r].Key)
+			if err != nil {
+				fmt.Printf("getData wrong! %v\n", err)
+				panic(err)
+			}
 		}
+
 	}
 }

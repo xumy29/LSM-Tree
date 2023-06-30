@@ -130,16 +130,16 @@ func (t *LSMTree) Get(key string) (string, error) {
 	defer t.drwm.RUnlock()
 
 	// 从最前面的最新磁盘文件开始往后搜，搜到的第一个即返回
-	log.Logger.Debug(fmt.Sprintf("get key %v, current file level: %d\n", key, 0))
+	log.Trace(fmt.Sprintf("get key %v, current file level: %d\n", key, 0))
 	for e := t.diskFiles[0].Front(); e != nil; e = e.Next() {
 		d := e.Value.(*DiskFile)
 		elem, err := d.Search(key)
 		if err == nil {
 			// found in disk
 			// found in disk
-			log.Logger.Debug("found key in level-0 file", "file start key", d.start_key, "file end key", d.end_key)
+			log.Trace("found key in level-0 file", "file start key", d.start_key, "file end key", d.end_key)
 			if elem.Value == deleteVal {
-				log.Logger.Debug("this key was deleted")
+				log.Trace("this key was deleted")
 				return "", fmt.Errorf("key %s was deleted", key)
 			}
 			return elem.Value, nil
@@ -148,7 +148,7 @@ func (t *LSMTree) Get(key string) (string, error) {
 
 	// 从level1开始，每层文件都是有序的，只需找到该key所在的文件，在该文件内搜索即可
 	for i := 1; i < t.config.FileLevelCnt; i++ {
-		log.Logger.Debug(fmt.Sprintf("get key %v, current file level: %d\n", key, i))
+		log.Trace(fmt.Sprintf("get key %v, current file level: %d\n", key, i))
 		files := t.diskFiles[i]
 		if files.Len() == 0 {
 			continue
@@ -161,9 +161,9 @@ func (t *LSMTree) Get(key string) (string, error) {
 				elem, err := d.Search(key)
 				if err == nil {
 					// found in disk
-					log.Logger.Debug("found key in level-1 file", "file start key", d.start_key, "file end key", d.end_key)
+					log.Trace("found key in level-1 file", "file start key", d.start_key, "file end key", d.end_key)
 					if elem.Value == deleteVal {
-						log.Logger.Debug("this key was deleted")
+						log.Trace("this key was deleted")
 						return "", fmt.Errorf("key %s was deleted", key)
 					}
 					return elem.Value, nil

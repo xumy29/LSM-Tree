@@ -4,6 +4,7 @@ import (
 	"LSM-Tree/core"
 	"container/list"
 	"fmt"
+	"math/rand"
 	"sort"
 	"testing"
 
@@ -21,13 +22,14 @@ func TestListRemove(t *testing.T) {
 }
 
 func TestMergeUpdate(t *testing.T) {
+	rand.Seed(100)
 	elems := make([][]*core.Element, 4)
 	all_keys := make([]string, 0)
 	for j := 0; j < 4; j++ {
 		disk_elems := make([]*core.Element, 5)
 		keys := make([]string, 5)
 		for i := 0; i < len(disk_elems); i++ {
-			// keys[i] = fmt.Sprintf("key%d", rand.Intn(100))
+			keys[i] = fmt.Sprintf("key%d", rand.Intn(100))
 		}
 		sort.Strings(keys)
 		for i := 0; i < len(disk_elems); i++ {
