@@ -47,7 +47,7 @@ func NewDiskFile(elems []*core.Element, level int) *DiskFile {
 		index: &avlTree.AVLTree{},
 		level: level,
 	}
-	log.Logger.Info("Create new diskFile", "diskID", d.id)
+	log.Logger.Info("Create new diskFile", "diskID", d.id, "level", d.level)
 	var indexElems []core.Element
 	var enc *gob.Encoder
 	indexDistance := config.DefaultConfig().IndexDistance
@@ -127,7 +127,6 @@ func (d *DiskFile) AllElements() []*core.Element {
 			end, _ = strconv.Atoi(indexElems[i+1].Value)
 		}
 		dec = gob.NewDecoder(bytes.NewBuffer(d.buf.Bytes()[start:end]))
-		// var e core.Element
 		for {
 			elems[cnt] = &core.Element{}
 			if dec.Decode(elems[cnt]) != nil {
@@ -137,5 +136,18 @@ func (d *DiskFile) AllElements() []*core.Element {
 		}
 
 	}
+	// log.Logger.Debug("DiskFile AllElements cnt", "expected", d.size, "got", len(elems), "level", d.level)
 	return elems[:len(elems)-1]
+}
+
+func (d *DiskFile) GetID() int {
+	return int(d.id)
+}
+
+func (d *DiskFile) GetSize() int {
+	return d.size
+}
+
+func (d *DiskFile) GetKeyRange() [2]string {
+	return [2]string{d.start_key, d.end_key}
 }

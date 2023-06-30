@@ -1,7 +1,5 @@
 package config
 
-import "math"
-
 type Config struct {
 	// 特殊的value值，当访问到的Elem的value值等于该值时，表示该key被删除
 	DeleteValue string
@@ -17,8 +15,8 @@ type Config struct {
 	MaxLevel0FileCnt int
 	// Level-1+ 每个文件的最大体积，单位是键值对个数
 	LevelLFileSize int
-	// level-1+ 总体积上限，达到上限时向level-L+1合并
-	LevelLSize2Compact func(int) int
+	// 磁盘层级个数,包括level0
+	FileLevelCnt int
 }
 
 var (
@@ -34,9 +32,7 @@ func DefaultConfig() *Config {
 			ElemCnt2Flush:    10000,
 			MaxLevel0FileCnt: 4,
 			LevelLFileSize:   40000,
-			LevelLSize2Compact: func(lvl int) int {
-				return int(math.Pow10(lvl))
-			},
+			FileLevelCnt:     5,
 		}
 	}
 	return defaultConfig
